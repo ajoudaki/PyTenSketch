@@ -7,9 +7,100 @@ from sklearn import metrics
 from matplotlib import pyplot as plt
 from glob import glob
 import seaborn as sns
-
-# global settings for figures
 sns.set(context="paper", style="white", font_scale=1)
+
+
+def vec2str(vec):
+    return ''.join([chr(ord('A') + i) for i in vec])
+
+
+def read_fasta(dir):
+    file = open(dir, 'r')
+    names = []
+    vecs = []
+    for line in file.readlines():
+        if '#' in line or len(line) <= 1:
+            continue
+        if '>' in line:
+            names.append(line.strip('> \n'))
+        else:
+            vec = [v for v in line.strip(' \n').split(',') if v]
+            try:
+                vec = [float(s) for s in vec]
+            except ValueError:
+                vec = [ord(s) for s in vec]
+                vec = ''.join([chr(ord('A') + i) for i in vec])
+            vecs.append(vec)
+    # seqs = {name: vec for name,vec in zip(names,vecs)}
+    # return seqs
+    return names, vecs
+
+
+def dense_dists(d):
+    num_seqs = d[:, 1].max() + 1
+    dist = np.zeros((num_seqs, num_seqs))
+    for i in range(d.shape[0]):
+        dist[d[i, 0], d[i, 1]] = d[i, 2]
+    dist = dist + dist.transpose()
+    return dist
+
+
+def dict_configs(d):
+    for k, v in d.items():
+        if isinstance(v, list):
+            pass
+        elif isinstance(v, range):
+            d[k] = list(v)
+        else:
+            d[k] = [v]
+    for vcomb in product(*d.values()):
+        yield dict(zip(d.keys(), vcomb))
+
+
+def conf2str(conf, multiline):
+    if multiline:
+        eol = '\n'
+    else:
+        eol = ' '
+    str = ''
+    for k, v in conf.items():
+        str += '--{}={}{}'.format(k, v, eol)
+    return str
+
+
+def grid_flagfiles(grid, dir_name):
+    for ci, config in enumerate(dict_configs(grid)):
+        config['o'] = config['o'] + str(ci) + '/'
+        outfile = open('{}/grid_flags_{}'.format(dir_name, ci), 'w')
+        if outfile:
+            outfile.write(conf2str(config, multiline=True))
+        else:
+            print('could not open the file')
+        outfile.close()
+
+
+def grid_commands(proj_dir, exec_name, grid, out_dir):
+    cmd = 'PROJ_DIR={}\n'.format(proj_dir)
+    commands = '{}\necho ">> Project directory ...\\n {}\\n"\n'.format(cmd, cmd)
+    proj_dir = '$PROJ_DIR'
+    if out_dir.strip()[0] != '/':  # relative output directory
+        out_dir = os.path.join(proj_dir, out_dir)
+    if exec_name.strip()[0] != '/':
+        exec_name = os.path.join(proj_dir, exec_name)
+    if os.path.exists(out_dir):
+        shutil.rmtree(out_dir)
+    os.makedirs(out_dir)
+    for ci, config in enumerate(dict_configs(grid)):
+        config['o'] = os.path.join(out_dir, str(ci))
+        cmd = '{} {}'.format(exec_name, conf2str(config, multiline=False))
+        commands = commands + '\n{}\necho "\\n>> Running Script \\n {}\\n"\n'.format(cmd, cmd)
+    outfile = open(os.path.join(out_dir, 'script.sh'), 'w')
+
+    if outfile:
+        outfile.write(commands)
+    else:
+        print('could not open the file')
+    outfile.close()
 
 
 def get_summary(path, thresh):
@@ -99,7 +190,7 @@ As for the the model parameters, embedding dimension is set to $\\EDim={flags[em
 \hline
 \end{tabular}
 \end{table}"""
-    fout = open('table.tex', 'w')
+    fout = open('figures/table.tex', 'w')
     fout.write(table_latex)
     fout.close()
     return table_latex
@@ -263,3 +354,29 @@ if __name__ == '__main__':
 
     path = '/tmp/fig2'
     gen_fig2(path=path)
+
+    # sample grid search
+    # conf_grid = {
+    #     'num_seqs': 1000,
+    #     'alphabet_size': 4,
+    #     'seq_len': 1000,
+    #     'phylogeny_shape': 'path',
+    #     'mutation_type': 'rate',
+    #     'mutation_rate': 1,
+    #     'min_mutation_rate': 0,
+    #     'block_mutation_rate': 0.0,
+    #     'kmer_size': [1, 4, 8, 12],
+    #     'tuple_length': range(2, 6),
+    #     'stride': [50, 100],
+    #     'window_size': [100, 200, 500],
+    #     'embed_dim': 30,
+    #     'group_size': 2,
+    #     'hash_alg': 'crc32',
+    #     'num_threads': 0,
+    # }
+    # bin_name = 'experiments'
+    # experiment_dir = '/tmp/test3'
+    # bin_path = '/home/amir/CLionProjects/Project2020-seq-tensor-sketching/cmake-build-release'
+    #
+    # # grid_flagfiles(grid=conf_grid, dir_name=experiment_dir)
+    # grid_commands(proj_dir=bin_path, exec_name=bin_name, grid=conf_grid, out_dir=experiment_dir)
